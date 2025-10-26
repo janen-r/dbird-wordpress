@@ -28,6 +28,33 @@ add_action('rest_api_init', function () {
   ]);
 });
 
+/**
+ * Check if a user has an active WooCommerce subscription for a given product ID.
+ *
+ * @param int $user_id
+ * @param int $product_id
+ * @return bool
+ */
+function dbird_user_has_active_subscription($user_id, $product_id) {
+    if ( ! class_exists('WC_Subscriptions') ) return false;
+
+    $subscriptions = wcs_get_users_subscriptions($user_id);
+    if ( empty($subscriptions) ) return false;
+
+    foreach ($subscriptions as $subscription) {
+        if ( ! $subscription->has_status('active') ) continue;
+
+        foreach ($subscription->get_items() as $item) {
+            $item_product_id = $item->get_product_id();
+            if ( (int)$item_product_id === (int)$product_id ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 function dbird_check_permission(WP_REST_Request $request) {
   $token = sanitize_text_field($request->get_param('token'));
   $from  = sanitize_text_field($request->get_param('from')); // e.g. chrome_extension_teams
@@ -61,18 +88,22 @@ function dbird_check_permission(WP_REST_Request $request) {
   // === MOCK CHECK: for now, simulate product subscription check ===
   // Later we’ll check WooCommerce orders/subscriptions for real
   $hasPermission = false;
+  $upgrade_url = null;
+  $view_subscriptions_url = home_url('/my-account/subscriptions/');
 
-  // Example: decide based on $from and dummy rules
-  if ($from === 'chrome_extension_teams') {
-    // Check if user purchased the Teams product (mocked)
-    $hasPermission = true; // TODO: replace with real check
-  } elseif ($from === 'chrome_extension_zoom') {
-    $hasPermission = false; // not purchased
+  // TODO: Replace this mock logic with real subscription/product checks
+  if ($from === 'ce_dual_teams') {
+    $product_id = 62;
+    $hasPermission = dbird_user_has_active_subscription($user->ID, $product_id);
+    $upgrade_url = home_url('/checkout/?add-to-cart=62');
+  } elseif ($from === 'ce_dual_zoom') {
+    $hasPermission = false;
   }
 
   return [
     'email' => $email,
     'hasPermission' => $hasPermission,
-    "upgrade_url" => home_url('/premium-dashboard/')
+    'upgrade_url' => $upgrade_url,
+    'view_subscriptions_url' => $view_subscriptions_url,
   ];
 }

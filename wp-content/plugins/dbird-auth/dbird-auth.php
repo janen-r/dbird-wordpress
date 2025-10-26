@@ -38,15 +38,64 @@ add_action('template_redirect', function() {
     exit;
 });
 
-// === Capture extension ID once ===
-add_action('init', function() {
-  if (!session_id()) session_start();
+// Usecase: After login, redirect back to extension with token
+add_action('template_redirect', function() {
 
-  // Capture ?ext_id=XYZ from any request
-  if (isset($_GET['ext_id'])) {
-    $_SESSION['dbird_ext_id'] = sanitize_text_field($_GET['ext_id']);
-  }
+    // 🛑 Skip for admin dashboard or AJAX calls
+    if ( is_admin() || defined('DOING_AJAX') ) return;
+
+    // ✅ Only run on the WooCommerce My Account page
+    if ( ! function_exists('is_account_page') || ! is_account_page() ) return;
+
+    if ( ! session_id() ) session_start();
+
+    // === Capture params from request ===
+    $ext_redirect = sanitize_text_field($_GET['extension_redirect'] ?? '');
+
+    // Store redirect temporarily (only if it’s a valid Chrome extension URL)
+    if (!empty($ext_redirect) && str_starts_with($ext_redirect, 'chrome-extension://')) {
+        $_SESSION['dbird_redirect'] = $ext_redirect;
+    } else { 
+      // (so normal visits to /my-account/ won't cause redirect)
+      return;
+    }
+
+    // === Proceed only if user is logged in ===
+    $user = wp_get_current_user();
+    if ( ! $user || ! $user->exists() ) return;
+
+    // Get stored redirect or default
+    $target = $_SESSION['dbird_redirect'] ?? '';
+    if ( empty($target) ) {
+        $target = home_url('/dual-subtitles-for-teams-chrome-extension/');
+    }
+
+    // === Create token for extension auth ===
+    $token = wp_create_nonce('dbird_login_' . $user->user_email);
+    update_user_meta($user->ID, '_dbird_token', $token);
+
+    // Build redirect URL
+    $redirect_url = urlencode( home_url('/dual-subtitles-for-teams-chrome-extension/') );
+    $final_target = $target . '?auth_token=' . $token . '&redirect_url=' . $redirect_url;
+
+    // Clean up session data
+    unset($_SESSION['dbird_redirect'], $_SESSION['dbird_ext_id']);
+
+    // 🚀 Redirect (with JS fallback)
+    wp_redirect($final_target);
+    echo "<script>location.href='" . esc_js($final_target) . "';</script>";
+    exit;
 });
+
+// === Capture extension ID once ===
+// add_action('init', function() {
+//   if (!session_id()) session_start();
+
+//   // Capture ?ext_id=XYZ from any request
+//   if (isset($_GET['ext_id'])) {
+//     $_SESSION['dbird_ext_id'] = sanitize_text_field($_GET['ext_id']);
+//   }
+// });
 
 // // === After successful normal WP login ===
 // add_filter('login_redirect', function($redirect_to, $requested_redirect_to, $user) {
